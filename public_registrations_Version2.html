@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>學生報名管理</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <div id="topNavbar"></div>
+
+  <main class="container py-4">
+    <h2>報名管理（學生）</h2>
+
+    <div class="mb-3">
+      <label class="form-label">學生帳號 / 學號</label>
+      <input id="student_id" class="form-control" placeholder="例如: S12345 或 KY0126">
+    </div>
+
+    <div id="regAlert"></div>
+
+    <h4>可報名活動</h4>
+    <div id="eventsList" class="list-group mb-4">載入中...</div>
+
+    <h4>我的報名</h4>
+    <div id="myRegs" class="list-group">載入中...</div>
+
+    <p class="form-text">操作會呼叫後端 API：
+      GET /api/activities.php?action=list 可取得活動清單（含已報名數）；
+      POST /api/registration.php?action=register 註冊，需提供 {student_id, activity_id}；
+      POST /api/registration.php?action=cancel 取消報名，需提供 {student_id, activity_id}。
+    </p>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="assets/js/app.js"></script>
+  <script src="assets/js/auth.js"></script>
+  <script src="assets/js/navbar.js"></script>
+
+  <script>
+    (function(){
+      const studentInput = document.getElementById('student_id');
+      const eventsList = document.getElementById('eventsList');
+      const myRegs = document.getElementById('myRegs');
+
+      authStatus().then(user => {
+        if (user && user.role === 'user') studentInput.value = user.student_id || '';
+      });
+
+      studentInput.addEventListener('change', loadMyRegs);
+
+      async function loadEvents(){
+        eventsList.innerHTML = '載入中...';
+        try {
+          const res = await apiGet('/api/activities.php?action=list');
+          if (!res.success) throw new Error(res.message || '取得失敗');
+          const data = res.data || [];
+          eventsList.innerHTML = '';
+          data.forEach(act => {
+            const btn = document.createElement('button');
+            btn.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+            btn.innerHTML = `<div>
+                              <div><strong>${escapeHtml(act.title)}</strong></div>
+                              <small>${formatDateRange(act.start_time, act.end_time)} • ${escapeHtml(act.location_name||'')}</small>
+                             </div>
+                             <div>
+                               <small class="me-2">${act.registered || 0}/${act.capacity}</small>
+                               <button class="btn btn-sm btn-primary btn-register" data-id="${act.id}">報名</button>
+                             </div>`;
+            eventsList.appendChild(btn);
+          });
+          document.querySelectorAll('.btn-register').forEach(b => b.addEventListener('click', onRegister));
+        } catch (err) {
+          eventsList.innerHTML = `錯誤: ${err.message}`;
+        }
+      }
+
+      async function loadMyRegs(){
+        const sid = studentInput.value.trim();
+        if (!sid) return myRegs.innerHTML = '<div class="text-muted">請輸入學生帳號/學號以查看我的報名</div>';
+        myRegs.innerHTML = '載入中...';
+        try {
+          const res = await apiGet(`/api/registration.php?action=list&student_id=${encodeURIComponent(sid)}`);
+          if (!res.success) throw new Error(res.message || '取得失敗');
+          const data = res.data || [];
+          if (data.length === 0) myRegs.innerHTML = '<div class="text-muted">尚未報名任何活動</div>';
+          else {
+            myRegs.innerHTML = '';
+            data.forEach(r => {
+              const item = document.createElement('div');
+              item.className = 'list-group-item d-flex justify-content-between align-items-center';
+              item.innerHTML = `<div>
+                                  <strong>${escapeHtml(r.title)}</strong><br/>
+                                  <small>${formatDateRange(r.start_time, r.end_time)} • ${escapeHtml(r.location_name||'')}</small>
+                                </div>
+                                <div>
+                                  <button class="btn btn-sm btn-danger btn-cancel" data-id="${r.activity_id}">取消報名</button>
+                                  <button class="btn btn-sm btn-outline-secondary btn-qr" data-token="${escapeHtml(r.qr_token || '')}">顯示 QR</button>
+                                </div>`;
+              myRegs.appendChild(item);
+            });
+            document.querySelectorAll('.btn-cancel').forEach(b => b.addEventListener('click', onCancel));
+            document.querySelectorAll('.btn-qr').forEach(b => b.addEventListener('click', onShowQr));
+          }
+        } catch (err) {
+          myRegs.innerHTML = `錯誤: ${err.message}`;
+        }
+      }
+
+      async function onRegister(e){
+        const activity_id = e.currentTarget.dataset.id;
+        const student_id = studentInput.value.trim();
+        if (!student_id) return showAlert('regAlert', 'warning', '請先輸入學生帳號/學號');
+        try {
+          const res = await apiPost('/api/registration.php?action=register', { student_id, activity_id });
+          if (res.success) {
+            showAlert('regAlert','success', res.message || '報名成功');
+            loadEvents(); loadMyRegs();
+          } else {
+            showAlert('regAlert','danger', res.message || '報名失敗');
+          }
+        } catch (err) {
+          showAlert('regAlert','danger', err.message || '網路錯誤');
+        }
+      }
+
+      async function onCancel(e){
+        const activity_id = e.currentTarget.dataset.id;
+        const student_id = studentInput.value.trim();
+        if (!confirm('確定取消報名？')) return;
+        try {
+          const res = await apiPost('/api/registration.php?action=cancel', { student_id, activity_id });
+          if (res.success) {
+            showAlert('regAlert','success', res.message || '取消成功');
+            loadEvents(); loadMyRegs();
+          } else showAlert('regAlert','danger', res.message || '取消失敗');
+        } catch (err) {
+          showAlert('regAlert','danger', err.message || '網路錯誤');
+        }
+      }
+
+      function onShowQr(e){
+        const token = e.currentTarget.dataset.token;
+        alert('QR token:\n' + token + '\n（後端也可回傳完整 QR 圖片網址）');
+      }
+
+      loadEvents();
+    })();
+  </script>
+</body>
+</html>

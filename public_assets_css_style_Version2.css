@@ -1,0 +1,5 @@
+/* 基本樣式 */
+body { background: #f8f9fa; }
+.container { max-width: 1100px; }
+#reader { margin: 0 auto; border: 1px dashed #ccc; padding: 8px; background:#fff; }
+.table td, .table th { vertical-align: middle; }

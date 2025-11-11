@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>出席統計</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div id="topNavbar"></div>
+
+  <main class="container py-4">
+    <h2>活動出席統計</h2>
+
+    <div class="row">
+      <div class="col-md-6">
+        <h5>每活動出席人數（以學期）</h5>
+        <select id="semesterSelect" class="form-select mb-2"></select>
+        <canvas id="activityChart" height="200"></canvas>
+      </div>
+
+      <div class="col-md-6">
+        <h5>學生累積時數</h5>
+        <div class="mb-2">
+          <input id="studentHoursId" class="form-control" placeholder="輸入學生帳號/學號查詢" />
+        </div>
+        <div id="studentHoursResult"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="assets/js/app.js"></script>
+  <script src="assets/js/auth.js"></script>
+  <script src="assets/js/navbar.js"></script>
+  <script>
+    (function(){
+      const semesterSelect = document.getElementById('semesterSelect');
+      const ctx = document.getElementById('activityChart').getContext('2d');
+      let chart = null;
+
+      async function loadSemesters() {
+        try {
+          const res = await apiGet('/api/stats.php?action=semesters');
+          if (!res.success) throw new Error(res.message||'無法取得學期');
+          semesterSelect.innerHTML = '';
+          res.data.forEach(s => {
+            const opt = document.createElement('option'); opt.value = s; opt.textContent = s;
+            semesterSelect.appendChild(opt);
+          });
+          if (res.data.length>0) {
+            semesterSelect.value = res.data[0];
+            loadActivityStats(res.data[0]);
+          }
+        } catch (err) {
+          showAlert('', 'danger', err.message);
+        }
+      }
+
+      async function loadActivityStats(semester) {
+        try {
+          const res = await apiGet(`/api/stats.php?action=activity_attendance&semester=${encodeURIComponent(semester)}`);
+          if (!res.success) throw new Error(res.message||'取得失敗');
+          const labels = res.data.map(r => r.title);
+          const values = res.data.map(r => r.attended);
+          if (chart) chart.destroy();
+          chart = renderBarChart(ctx, labels, values, { label: '出席人數' });
+        } catch (err) {
+          showAlert('', 'danger', err.message);
+        }
+      }
+
+      document.getElementById('studentHoursId').addEventListener('change', async (e) => {
+        const sid = e.target.value.trim();
+        if (!sid) return;
+        try {
+          const res = await apiGet(`/api/stats.php?action=student_hours&student_id=${encodeURIComponent(sid)}`);
+          if (!res.success) throw new Error(res.message||'取得失敗');
+          const rows = res.data.map(r => `<li class="list-group-item">${escapeHtml(r.title)} - ${r.hours} 小時 (${r.date})</li>`).join('');
+          document.getElementById('studentHoursResult').innerHTML = `<ul class="list-group">${rows}</ul>`;
+        } catch (err) {
+          showAlert('', 'danger', err.message);
+        }
+      });
+
+      semesterSelect.addEventListener('change', () => loadActivityStats(semesterSelect.value));
+      loadSemesters();
+    })();
+  </script>
+</body>
+</html>

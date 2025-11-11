@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>活動管理</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <div id="topNavbar"></div>
+
+  <main class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h2>活動管理</h2>
+      <button class="btn btn-success" id="btnNewActivity">新增活動</button>
+    </div>
+
+    <div id="activitiesAlert"></div>
+
+    <table class="table table-striped" id="activitiesTable">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>標題</th>
+          <th>日期</th>
+          <th>地點</th>
+          <th>名額</th>
+          <th>已報名/名額</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div class="modal fade" id="mapModal" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">查看地點</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div id="activityMap" style="height:400px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="activityModal" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <form id="activityForm" class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="activityModalTitle">新增活動</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="activity_id" name="activity_id" />
+            <div class="mb-3">
+              <label class="form-label">標題</label>
+              <input class="form-control" id="title" name="title" required />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">描述</label>
+              <textarea class="form-control" id="description" name="description"></textarea>
+            </div>
+            <div class="row">
+              <div class="mb-3 col-md-6">
+                <label class="form-label">開始時間</label>
+                <input type="datetime-local" class="form-control" id="start_time" name="start_time" required />
+              </div>
+              <div class="mb-3 col-md-6">
+                <label class="form-label">結束時間</label>
+                <input type="datetime-local" class="form-control" id="end_time" name="end_time" required />
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="mb-3 col-md-6">
+                <label class="form-label">地點名稱 (address)</label>
+                <input class="form-control" id="location_name" name="location_name" />
+              </div>
+              <div class="mb-3 col-md-3">
+                <label class="form-label">緯度 (lat)</label>
+                <input class="form-control" id="lat" name="lat" placeholder="例: 25.0330" />
+              </div>
+              <div class="mb-3 col-md-3">
+                <label class="form-label">經度 (lng)</label>
+                <input class="form-control" id="lng" name="lng" placeholder="例: 121.5654" />
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="mb-3 col-md-4">
+                <label class="form-label">名額上限</label>
+                <input type="number" class="form-control" id="capacity" name="capacity" min="1" value="30" required />
+              </div>
+              <div class="mb-3 col-md-4">
+                <label class="form-label">學期 (例如: 2025-1)</label>
+                <input class="form-control" id="semester" name="semester" />
+              </div>
+              <div class="mb-3 col-md-4">
+                <label class="form-label">時數 (hours)</label>
+                <input type="number" class="form-control" id="hours" name="hours" min="0" value="2" />
+              </div>
+            </div>
+
+            <div class="form-text">按提交後前端會呼叫後端 API：POST /api/activities.php?action=create 或 action=update（僅管理者可執行）</div>
+          </div>
+          <div class="modal-footer">
+            <button type="submit" class="btn btn-primary">儲存</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script src="assets/js/app.js"></script>
+  <script src="assets/js/auth.js"></script>
+  <script src="assets/js/navbar.js"></script>
+
+  <script>
+    (function(){
+      const activityModalEl = document.getElementById('activityModal');
+      const activityModal = new bootstrap.Modal(activityModalEl);
+      const mapModalEl = document.getElementById('mapModal');
+      const mapModal = new bootstrap.Modal(mapModalEl);
+
+      document.getElementById('btnNewActivity').addEventListener('click', async () => {
+        document.getElementById('activityForm').reset();
+        document.getElementById('activity_id').value = '';
+        document.getElementById('activityModalTitle').textContent = '新增活動';
+        activityModal.show();
+      });
+
+      document.getElementById('activityForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const form = new FormData(e.target);
+        const payload = Object.fromEntries(form.entries());
+        payload.capacity = parseInt(payload.capacity) || 0;
+        payload.hours = parseFloat(payload.hours) || 0;
+        const action = payload.activity_id ? 'update' : 'create';
+        try {
+          const res = await apiPost(`/api/activities.php?action=${action}`, payload);
+          if (res.success) {
+            showAlert('activitiesAlert', 'success', res.message || '儲存成功');
+            activityModal.hide();
+            loadActivities();
+          } else {
+            showAlert('activitiesAlert', 'danger', res.message || '儲存失敗');
+          }
+        } catch (err) {
+          showAlert('activitiesAlert', 'danger', err.message || '網路錯誤');
+        }
+      });
+
+      async function loadActivities() {
+        const tbody = document.querySelector('#activitiesTable tbody');
+        tbody.innerHTML = '<tr><td colspan="7">載入中...</td></tr>';
+        try {
+          const res = await apiGet('/api/activities.php?action=list');
+          if (!res.success) {
+            throw new Error(res.message || '無法取得活動');
+          }
+          const data = res.data || [];
+          if (data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7">尚無活動</td></tr>';
+            return;
+          }
+          tbody.innerHTML = '';
+          data.forEach((act, i) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${i+1}</td>
+              <td>${escapeHtml(act.title)}</td>
+              <td>${formatDateRange(act.start_time, act.end_time)}</td>
+              <td>${escapeHtml(act.location_name || '')}</td>
+              <td>${act.capacity}</td>
+              <td>${act.registered || 0} / ${act.capacity}</td>
+              <td>
+                <button class="btn btn-sm btn-info btn-view" data-id="${act.id}">檢視</button>
+                <button class="btn btn-sm btn-secondary btn-edit" data-id="${act.id}">編輯</button>
+                <button class="btn btn-sm btn-danger btn-delete" data-id="${act.id}">刪除</button>
+                <button class="btn btn-sm btn-outline-success btn-map" data-lat="${act.lat||''}" data-lng="${act.lng||''}" data-location="${act.location_name||''}">地圖</button>
+              </td>
+            `;
+            tbody.appendChild(tr);
+          });
+
+          document.querySelectorAll('.btn-edit').forEach(btn => btn.addEventListener('click', onEdit));
+          document.querySelectorAll('.btn-delete').forEach(btn => btn.addEventListener('click', onDelete));
+          document.querySelectorAll('.btn-map').forEach(btn => btn.addEventListener('click', onMap));
+          document.querySelectorAll('.btn-view').forEach(btn => btn.addEventListener('click', onView));
+        } catch (err) {
+          tbody.innerHTML = `<tr><td colspan="7">錯誤: ${err.message}</td></tr>`;
+        }
+      }
+
+      async function onView(e){
+        const id = e.currentTarget.dataset.id;
+        const res = await apiGet(`/api/activities.php?action=get&id=${id}`);
+        if (!res.success) return showAlert('activitiesAlert','danger',res.message||'查詢失敗');
+        const act = res.data;
+        alert(`活動：${act.title}\n描述：${act.description}\n時數：${act.hours}\n報名：${act.registered || 0}/${act.capacity}`);
+      }
+
+      async function onEdit(e){
+        const id = e.currentTarget.dataset.id;
+        const res = await apiGet(`/api/activities.php?action=get&id=${id}`);
+        if (!res.success) return showAlert('activitiesAlert','danger',res.message||'查詢失敗');
+        const act = res.data;
+        document.getElementById('activity_id').value = act.id;
+        document.getElementById('title').value = act.title;
+        document.getElementById('description').value = act.description || '';
+        document.getElementById('start_time').value = act.start_time ? act.start_time.replace(' ','T') : '';
+        document.getElementById('end_time').value = act.end_time ? act.end_time.replace(' ','T') : '';
+        document.getElementById('location_name').value = act.location_name || '';
+        document.getElementById('lat').value = act.lat || '';
+        document.getElementById('lng').value = act.lng || '';
+        document.getElementById('capacity').value = act.capacity || 0;
+        document.getElementById('semester').value = act.semester || '';
+        document.getElementById('hours').value = act.hours || 0;
+        document.getElementById('activityModalTitle').textContent = '編輯活動';
+        activityModal.show();
+      }
+
+      async function onDelete(e){
+        if (!confirm('確定要刪除此活動？這會同時移除報名資料。')) return;
+        const id = e.currentTarget.dataset.id;
+        try {
+          const res = await apiPost(`/api/activities.php?action=delete`, { id });
+          if (res.success) {
+            showAlert('activitiesAlert','success', res.message || '刪除成功');
+            loadActivities();
+          } else {
+            showAlert('activitiesAlert','danger', res.message || '刪除失敗');
+          }
+        } catch (err) {
+          showAlert('activitiesAlert','danger', err.message || '網路錯誤');
+        }
+      }
+
+      function onMap(e){
+        const lat = parseFloat(e.currentTarget.dataset.lat);
+        const lng = parseFloat(e.currentTarget.dataset.lng);
+        const name = e.currentTarget.dataset.location || '';
+        mapModal.show();
+        setTimeout(() => {
+          initActivityMap(lat || 25.0330, lng || 121.5654, name);
+        }, 300);
+      }
+
+      loadActivities();
+    })();
+  </script>
+</body>
+</html>
